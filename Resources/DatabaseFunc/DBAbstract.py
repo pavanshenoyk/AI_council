@@ -1,49 +1,23 @@
 from abc import ABC,abstractmethod
-class AbrtractDatabaseController(ABC):
+class AbstractDatabaseController(ABC):
     @abstractmethod
-    def connect(self):
-        pass
-
+    def connect(self): ...
+ 
     @abstractmethod
-    def load(self):
-        pass
-
+    def close(self): ...
+ 
     @abstractmethod
-    def create(self):
-        pass
-
+    def insert(self, collection, record): ...
+ 
     @abstractmethod
-    def update(self):
-        pass
-
+    def find(self, collection, query): ...
+ 
     @abstractmethod
-    def insert(self):
-        pass
-
+    def update(self, collection, query, changes): ...
+ 
     @abstractmethod
-    def find(self):
-        pass
-
-    @abstractmethod
-    def delete(self):
-        pass
-    
-
-    @abstractmethod
-    def insert_multiple(self):
-        pass
-
-    @abstractmethod
-    def find_multiple(self):
-        pass
-
-    @abstractmethod
-    def delete_multiple(self):
-        pass
-
-    @abstractmethod
-    def alter(self):
-        pass
-
-    
+    def delete(self, collection, query): ...
+ 
+    def insert_multiple(self, collection, records):
+        return [self.insert(collection, r) for r in records]
 
