@@ -1,70 +1,36 @@
 from AgentLoader import loader
-from numpy import dot
-from numpy.linalg import norm
-
-from sentence_transformers import SentenceTransformer
-import numpy as np
-
-_model = SentenceTransformer("all-MiniLM-L6-v2")  # loaded once at import, not per call
 
 
-def embed_fn(text: str):
-    return _model.encode(text)
+from AgentLoader import loader
 
+def render(records):
+    # records = [{"USER": "..."}, {"REQUIREMENT_ANALYSIS": "..."}, ...]
+    lines = []
+    for i, rec in enumerate(records):
+        for key, value in rec.items():
+            tag = "PROJECT" if (i == 0 and key == "USER") else key
+            lines.append(f"###{tag} {value}")
+    return "\n".join(lines)
 
-def cosine_similarity(vec1, vec2):
-    return np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2))
-
-
-def has_converged(prev_council, current_council, threshold=0.9):
-    v1 = embed_fn(prev_council)
-    v2 = embed_fn(current_council)
-    return cosine_similarity(v1, v2) >= threshold
-
-
-def iterate(models, prompt):
-    results = []
-    for model in models:
-        response = model.generate(prompt)
-        results.append({"agent": model.name, "response": response})
-
-    return results
-
-def Looping(models,prompt,previous_result=None,depth=0,max_depth=5):
-    current_result=iterate(models,prompt)
-    results=f"{prompt}\n" + "\n".join(f"{r['agent']}: {r['response']}" for r in current_result)
-    if depth+1==max_depth: return current_result,results
-    if previous_result ==None:
-        return Looping(models,results,results,depth+1)
-    if has_converged(str(previous_result),str(results)): return current_result,results
-    else: return Looping(models,results,results,depth+1)
-    
+def last_turns(records, n):
+    # keep only the last n turns (a turn starts at each USER record)
+    starts = [i for i, r in enumerate(records) if "USER" in r]
+    return records[starts[-n]:] if n and len(starts) > n else records
 
 if __name__ == "__main__":
     config = loader()
-    db=config["database"]
+    models = config["models"]
+    records = []
+
     while True:
-        doc = {"prompt": "", "iteration": []}
-        prompt = input(">")
-        doc["prompt"]=prompt
-        while True:
-            res_list,result=Looping(models=config["models"],prompt=prompt)
-            entry = {r["agent"]: r["response"] for r in res_list}
-            entry["council"] = result
-            doc["iteration"].append(entry)
-            print(result)
-            prompt=input(">")
-            if prompt.strip().lower() == "done": break
-            doc["iteration"][-1]["user"] = prompt
-            prompt=f"{result}+\nuser response : {prompt}"
+        ip = input("\n> ")
+        if ip.strip().lower() in ("done", "quit", "exit"):
+            break
+        records.append({"USER": ip})
 
-        db.insert("chats", doc)
+        response = "INVALID RESPONSE"
+        for model in models:
+            response = model.generate(render(last_turns(records, config.get("context_size"))))
+            records.append({model.name.upper(): response})
 
-
-        
-
-        
-
-    
-            
-            
+        print(response)
