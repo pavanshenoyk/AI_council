@@ -12,7 +12,7 @@ def test_loader():
             print(f"       - {model}")
 
         print(f"[TEST] Database: {response['database']}")
-        print(f"[TEST] Context size: {response['context_size']}")
+        print(f"[TEST] Context size: {response['context_collection']}")
 
         print("========== TEST PASSED ==========\n")
 

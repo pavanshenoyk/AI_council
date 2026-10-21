@@ -1,36 +1,108 @@
+from bson import ObjectId
+import json_repair
 from AgentLoader import loader
+from Resources.ContextHandler import ContextManager,ProjectExtraction
+from pydantic import ValidationError
+import os
+
+OPENAI_API_KEY = key = os.environ["OPENAI_API_KEY"]  
 
 
-from AgentLoader import loader
+def apply_output(context, raw):
+    try:
+        parsed = json_repair.loads(raw)
+        if not isinstance(parsed, dict) or not (parsed.keys() & ProjectExtraction.model_fields.keys()):
+            return context 
+        return ProjectExtraction.model_validate(parsed)
+    except (ValidationError, ValueError, TypeError):
+        return context
 
-def render(records):
-    # records = [{"USER": "..."}, {"REQUIREMENT_ANALYSIS": "..."}, ...]
-    lines = []
-    for i, rec in enumerate(records):
-        for key, value in rec.items():
-            tag = "PROJECT" if (i == 0 and key == "USER") else key
-            lines.append(f"###{tag} {value}")
-    return "\n".join(lines)
 
-def last_turns(records, n):
-    # keep only the last n turns (a turn starts at each USER record)
-    starts = [i for i, r in enumerate(records) if "USER" in r]
-    return records[starts[-n]:] if n and len(starts) > n else records
+def render_context(context) -> str:
+    data = context.model_dump()
+    sections = []
 
+    for key, value in data.items():
+        if value is None or value == [] or value == "":
+            continue 
+
+        title = key.replace("_", " ").title() 
+
+        if isinstance(value, list):
+            lines = []
+            for item in value:
+                if isinstance(item, dict):
+                    # e.g. techstack: {"name": "Python", "purpose": "Backend"}
+                    lines.append("- " + ": ".join(str(v) for v in item.values()))
+                else:
+                    lines.append(f"- {item}")
+            body = "\n".join(lines)
+        else:
+            body = str(value)
+
+        sections.append(f"## {title}\n{body}")
+
+    return "\n\n".join(sections)
+
+
+class Orcestrator:
+    def __init__(self):
+        self.config=loader()
+        self.context_manager=ContextManager()
+        self.db=self.config["database"]
+
+    def run(self,prompt:str|None,id:str|None):
+        if prompt=="" or prompt==None:
+            return "Please proivde a proper output"
+        
+        matches = self.db.find({"_id": id})
+        if not matches:
+
+            raise SystemExit("No project with that id")
+        
+        project = matches[0]
+        main_prompt = project.get("main_prompt")
+        chats = project.get("chats", [])
+        saved = project.get("context")
+        context = ProjectExtraction(**saved) if saved else None
+
+        question=prompt
+            
+        
+        if not main_prompt:
+            main_prompt = question
+            self.db.update({"_id": id}, {"main_prompt": main_prompt})
+        
+        context = self.context_manager.update(new_input=question, context=context)
+        self.db.update({"_id": id}, {"context": context.model_dump()})
+        
+        for model in self.config["models"]:
+            raw = model.generate(context.model_dump_json())
+            context = apply_output(context, raw)
+                # persist after every agent so a crash mid-round doesn't lose progress
+            self.db.update({"_id": project_id}, {"context": context.model_dump()})
+        
+        chats.append({"prompt": question, "output": render_context(context)})
+        self.db.update({"_id": project_id}, {"chats": chats})
+
+
+        
+        
+            
 if __name__ == "__main__":
-    config = loader()
-    models = config["models"]
-    records = []
-
+    
+    
+    o=Orcestrator()
+    project_id = ObjectId(input("project id> ").strip())
+    
     while True:
-        ip = input("\n> ")
-        if ip.strip().lower() in ("done", "quit", "exit"):
-            break
-        records.append({"USER": ip})
+            question=input(">")
+            if question.strip().lower() in ("quit", "exit"):
+                break
+            o.run(question,project_id)
 
-        response = "INVALID RESPONSE"
-        for model in models:
-            response = model.generate(render(last_turns(records, config.get("context_size"))))
-            records.append({model.name.upper(): response})
+        
+            
 
-        print(response)
+        
+            

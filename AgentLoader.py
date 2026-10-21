@@ -1,13 +1,13 @@
 from config import config
 import torch
 import os
-from Resources.AgentWrapper import Model
+from Resources.AgentWrapper import Model,HFModel
 from Resources.DatabaseFunc import MongoDBController
 def loader():
     response={
         "models":[],
         "database":"",
-        "context_size":""
+        "context_collectison":""
     }
 
     device = torch.device(
@@ -23,18 +23,20 @@ def loader():
             model = torch.load(model_path, map_location=device, weights_only=agent["weight_only"])
         except Exception as e:
             raise RuntimeError(f"[loader] Failed to load agent '{agent['name']}': {e}") from e
-        response["models"].append(Model(model,agent["name"],agent["interactive"]))
+        if isinstance(model, dict) and "adapter_state" in model:
+            response["models"].append(HFModel(model, agent["name"], agent["interactive"], device))
+        else:
+            response["models"].append(Model(model, agent["name"], agent["interactive"]))
 
-    if config["db_url"]=="":
-        db=MongoDBController(db_name=config["db_name"])
+    if config["db_url"]=="": 
+        db=MongoDBController(db_name=config["db_name"],collection=config["context_collection"])
     else:
-        db=MongoDBController(uri=config["db_url"],db_name=config["db_name"])
+        db=MongoDBController(uri=config["db_url"],db_name=config["db_name"],collection=config["context_collection"])
 
     try:
         db.connect()
         response["database"] = db
     except Exception as e:
         raise RuntimeError(f"[loader] Could not connect to database: {e}") from e
-    response["context_size"]=config["context_size"]
     return response    
 
